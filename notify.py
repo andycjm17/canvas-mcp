@@ -106,39 +106,37 @@ def notify(title: str, subtitle: str, body: str) -> None:
 def compose_email(due: list, overdue: list) -> tuple:
     """Build (subject, body). Unlike the notification, this can be complete."""
     if overdue:
-        subject = i18n.t("notify.summary", due=len(due), overdue=len(overdue))
+        summary = i18n.t("notify.summary", due=len(due), overdue=len(overdue))
     elif due:
-        subject = i18n.t("notify.due_only", due=len(due), days=WINDOW_DAYS)
+        summary = i18n.t("notify.due_only", due=len(due), days=WINDOW_DAYS)
     else:
-        subject = i18n.t("notify.clear", days=WINDOW_DAYS)
+        summary = i18n.t("notify.clear", days=WINDOW_DAYS)
 
-    lines = []
+    # A section header is only worth its space when there are two sections to
+    # tell apart; with one, it just restates the summary line above it.
+    headed = bool(overdue) and bool(due)
+
+    def block(header: str, items: list, when_key: str, name_key: str) -> list:
+        out = [header, "-" * 46, ""] if headed else []
+        for item in items:
+            when = item.get(when_key) or {}
+            # "2026-09-06 23:59" -> "09-06 23:59"; the year is never the question
+            stamp = str(when.get("local", ""))[5:]
+            out.append(f"  {stamp}  {when.get('weekday','')}"
+                       f"   ·   {when.get('relative','')}")
+            out.append(f"      {item.get(name_key, '')}")
+            if item.get("course"):
+                out.append(f"      {item['course']}")
+            out.append("")
+        return out
+
+    lines = [summary, ""]
     if overdue:
-        lines.append(i18n.t("notify.section_overdue"))
-        for item in overdue:
-            w = item.get("due") or {}
-            lines.append(f"  {w.get('local','')} {w.get('weekday','')}"
-                         f"  [{w.get('relative','')}]  {item.get('name','')}")
-            if item.get("url"):
-                lines.append(f"      {item['url']}")
-        lines.append("")
-
+        lines += block(i18n.t("notify.section_overdue"), overdue, "due", "name")
     if due:
-        lines.append(i18n.t("notify.section_due", days=WINDOW_DAYS))
-        for item in due:
-            w = item.get("when") or {}
-            lines.append(f"  {w.get('local','')} {w.get('weekday','')}"
-                         f"  [{w.get('relative','')}]  {item.get('title','')}")
-            course = item.get("course")
-            if course:
-                lines.append(f"      {course}")
-        lines.append("")
+        lines += block(i18n.t("notify.section_due"), due, "when", "title")
 
-    if not lines:
-        lines.append(i18n.t("notify.clear", days=WINDOW_DAYS))
-
-    lines.append(i18n.t("notify.footer"))
-    return f"Canvas · {subject}", "\n".join(lines)
+    return i18n.t("notify.subject"), "\n".join(lines).rstrip() + "\n"
 
 
 def send_email(subject: str, body: str) -> bool:

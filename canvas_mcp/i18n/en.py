@@ -71,7 +71,7 @@ MESSAGES = {
     "notify.due_only": "{due} due in the next {days} days",
     "notify.clear": "Nothing due in the next {days} days",
     "notify.line": "{rel} {time} · {name}",
+    "notify.subject": "Canvas Update",
     "notify.section_overdue": "OVERDUE",
-    "notify.section_due": "DUE IN THE NEXT {days} DAYS",
-    "notify.footer": "-- canvas-mcp",
+    "notify.section_due": "DUE",
 }
