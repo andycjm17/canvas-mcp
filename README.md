@@ -30,8 +30,18 @@ time, the weekday, and a relative offset ("10 days out" / "24 days overdue").
 
 ## Install
 
+The fastest path is to hand this repository's URL to your coding agent and ask it
+to set the server up. Everything below is written so an agent can follow it
+unaided — clone, config file, registration command.
+
+**The one step an agent cannot do for you is get the token.** That needs your
+Canvas login and whatever MFA your school enforces, so generate it yourself (next
+section) and hand it over. Everything else is mechanical.
+
+Doing it by hand instead:
+
 ```bash
-git clone git@github.com:andycjm17/canvas-mcp.git
+git clone https://github.com/andycjm17/canvas-mcp.git
 cd canvas-mcp
 ```
 
