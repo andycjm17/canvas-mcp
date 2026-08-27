@@ -107,9 +107,16 @@ def tool_upcoming(days: int = 14, include_done: bool = False) -> Any:
         raise ValueError(i18n.t("err.days_range"))
     client = _client()
     start, end = model.window(days)
-    raw = client.paginate("/planner/items", start_date=start, end_date=end, limit=200)
+
+    # Query one day wide, then trim locally. Canvas reads end_date as UTC, but a
+    # deadline set at 23:59 local carries a UTC date of the following day — so an
+    # unpadded window drops every deadline on its own last day.
+    _, fetch_end = model.window(days + 1)
+    raw = client.paginate("/planner/items", start_date=start, end_date=fetch_end, limit=200)
 
     items = [model.planner_item(i) for i in raw]
+    items = [i for i in items
+             if i.get("when") and i["when"]["days_from_now"] <= days]
     if not include_done:
         items = [i for i in items if not i.get("submitted")]
     items.sort(key=lambda i: (i.get("when") or {}).get("utc") or "")
