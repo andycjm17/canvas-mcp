@@ -1,12 +1,15 @@
-"""Canvas LMS REST API v1 客户端（只读，纯标准库）。
+"""Canvas LMS REST API v1 client (read-only, standard library only).
 
-要点：
-  * 认证只要 `Authorization: Bearer <token>`，没有额外签名。
-  * 分页在 `Link` 响应头里，格式 `<url>; rel="next"`。不跟 next 只能拿到第一页，
-    Canvas 默认 per_page=10，课程一多就会静默截断。
-  * 同名参数用数组语法（`state[]=active`），要允许一个 key 出现多次。
-  * token 只对签发它的那个 instance 有效。Fuqua 的 token 打 canvas.duke.edu
-    会返回 401 Invalid access token——这不是 token 坏了，是 host 填错了。
+Notes:
+  * Auth is just `Authorization: Bearer <token>`; there is no extra signing.
+  * Pagination lives in the `Link` response header, formatted `<url>; rel="next"`.
+    Without following `next` you only ever get the first page — Canvas defaults to
+    per_page=10, so anything sizeable is silently truncated.
+  * Array parameters repeat the same key (`state[]=active`), so a key must be
+    allowed to appear more than once.
+  * A token is only valid for the instance that issued it. Fuqua's token against
+    canvas.duke.edu returns 401 Invalid access token — that is a wrong host, not a
+    bad token.
 """
 from __future__ import annotations
 
@@ -20,7 +23,7 @@ from typing import Any
 from . import config
 
 TIMEOUT = 30
-MAX_PAGES = 50  # 防止分页链接成环时无限打请求
+MAX_PAGES = 50  # Guard against a cyclic pagination chain looping forever
 
 _NEXT = re.compile(r'<([^>]+)>\s*;\s*rel="next"')
 
@@ -30,7 +33,7 @@ class ApiError(RuntimeError):
 
 
 def _encode(params: dict[str, Any] | None) -> str:
-    """支持 Canvas 的数组参数：值是 list 时展开成多个同名 key。"""
+    """Support Canvas array parameters: a list value expands to repeated keys."""
     if not params:
         return ""
     pairs: list[tuple[str, str]] = []
@@ -52,7 +55,7 @@ class Client:
         self.host = (host or config.host()).replace("https://", "").rstrip("/")
         self.base = f"https://{self.host}/api/v1"
 
-    # ------------------------------------------------------------ 底层
+    # ------------------------------------------------------------ transport
 
     def _open(self, url: str) -> tuple[Any, str | None]:
         req = urllib.request.Request(url, headers={
@@ -73,7 +76,7 @@ class Client:
                     detail = "；".join(str(x.get("message", x)) for x in errs)
                 elif errs:
                     detail = str(errs)
-            except Exception:  # noqa: BLE001 - 错误体不是 JSON 就算了
+            except Exception:  # noqa: BLE001 - non-JSON error body, nothing to extract
                 pass
 
             if e.code == 401:
@@ -94,19 +97,20 @@ class Client:
         except ValueError as e:
             raise ApiError(f"响应不是合法 JSON（前 200 字符）：{body[:200]}") from e
 
-    # ------------------------------------------------------------ 对外
+    # ------------------------------------------------------------ public
 
     def get(self, path: str, **params: Any) -> Any:
-        """取单个资源，不翻页。"""
+        """Fetch a single resource. Does not paginate."""
         query = _encode(params)
         url = f"{self.base}{path}" + (f"?{query}" if query else "")
         data, _ = self._open(url)
         return data
 
     def paginate(self, path: str, limit: int | None = None, **params: Any) -> list[dict]:
-        """跟着 Link: rel="next" 把所有页取完。
+        """Follow `Link: rel="next"` until every page is consumed.
 
-        limit 是总条数上限，够了就不再请求下一页。
+        `limit` caps the total number of items; once reached, no further request
+        is made.
         """
         params.setdefault("per_page", 100)
         query = _encode(params)
@@ -116,7 +120,7 @@ class Client:
         for _ in range(MAX_PAGES):
             data, link = self._open(url)
             if isinstance(data, dict):
-                # 少数端点（如 /users/self）返回对象而非数组
+                # A few endpoints (e.g. /users/self) return an object, not an array
                 return [data]
             out.extend(data)
             if limit is not None and len(out) >= limit:

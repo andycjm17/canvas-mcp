@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""入口脚本。MCP client 启动时的工作目录不确定，这里显式把项目根加进 sys.path。"""
+"""Entry point. MCP clients start the server from an unpredictable working
+directory, so put the project root on sys.path explicitly."""
 import os
 import sys
 

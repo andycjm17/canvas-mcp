@@ -1,9 +1,9 @@
-"""凭证与实例配置。
+"""Credentials and instance configuration.
 
-**token 绝不进版本库**，只从环境变量或 ~/.config/canvas-mcp/config.json 读。
-配置文件在写入时强制 0600。
+**The token never enters version control.** It is read only from the environment
+or from ~/.config/canvas-mcp/config.json, which is forced to mode 0600 on write.
 
-解析顺序：环境变量 > 配置文件 > 默认值。
+Resolution order: environment variable > config file > default.
 """
 from __future__ import annotations
 
@@ -15,7 +15,8 @@ from typing import Any
 CONFIG_DIR = Path(os.environ.get("CANVAS_MCP_HOME") or (Path.home() / ".config" / "canvas-mcp"))
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
-# Fuqua 用自己的 instance，不是 canvas.duke.edu——后者对同一个 token 直接 401。
+# Fuqua runs its own instance; this is NOT canvas.duke.edu, which rejects the
+# same token with a 401.
 DEFAULT_HOST = "fuqua.instructure.com"
 DEFAULT_TZ = "America/New_York"
 
@@ -42,7 +43,7 @@ def _get(key: str, env: str, default: str | None = None) -> str | None:
 
 
 def host() -> str:
-    """Canvas 域名，不带协议。"""
+    """Canvas domain, without the scheme."""
     raw = _get("host", "CANVAS_MCP_HOST", DEFAULT_HOST) or DEFAULT_HOST
     return raw.replace("https://", "").replace("http://", "").rstrip("/")
 
@@ -52,7 +53,8 @@ def base_url() -> str:
 
 
 def timezone_name() -> str:
-    """展示用时区。Canvas 返回的时间全是 UTC，不转会把 DDL 记晚一天。"""
+    """Display timezone. Canvas returns UTC; without conversion every deadline
+    reads a day late."""
     return _get("timezone", "CANVAS_MCP_TZ", DEFAULT_TZ) or DEFAULT_TZ
 
 
@@ -71,7 +73,7 @@ def token() -> str:
 
 def save(token_value: str, host_value: str | None = None,
          timezone_value: str | None = None) -> Path:
-    """把凭证写进配置文件，权限 0600。"""
+    """Write credentials to the config file with mode 0600."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     data = _file()
     data["token"] = token_value
@@ -80,7 +82,8 @@ def save(token_value: str, host_value: str | None = None,
     if timezone_value:
         data["timezone"] = timezone_value
 
-    # 先建成 0600 再写，避免默认权限下有一瞬间是可读的。
+    # Create the file as 0600 before writing so it is never briefly world-readable
+    # under the default umask.
     fd = os.open(CONFIG_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)

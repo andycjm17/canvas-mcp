@@ -1,8 +1,8 @@
-"""Canvas LMS MCP server（stdio / JSON-RPC 2.0，纯标准库）。
+"""Canvas LMS MCP server (stdio / JSON-RPC 2.0, standard library only).
 
-只读：所有工具都只发 GET，不会替你交作业、改成绩或发帖。
+Read-only: every tool issues GETs. It will not submit work, change grades, or post.
 
-stdout 是协议通道，任何日志一律走 stderr。
+stdout is the protocol channel; all logging goes to stderr.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def _active_courses(client: api.Client) -> list[dict]:
 
 
 def _resolve_course(client: api.Client, name_or_id: Any) -> tuple[int, str]:
-    """把课程名（可模糊）或 id 解析成 (course_id, 课程名)。"""
+    """Resolve a course name (fuzzy) or id into (course_id, course_name)."""
     if name_or_id is None or name_or_id == "":
         raise ValueError("要指定 course：课程 id 或课程名（可只写一部分）。")
 
@@ -44,7 +44,7 @@ def _resolve_course(client: api.Client, name_or_id: Any) -> tuple[int, str]:
         for c in courses:
             if c.get("id") == cid:
                 return cid, c.get("name") or str(cid)
-        # 不在活跃列表里也放行，可能是已结课的课程
+        # Allow ids missing from the active list — the course may be finished
         return cid, str(cid)
 
     lowered = text.lower()
@@ -63,10 +63,10 @@ def _resolve_course(client: api.Client, name_or_id: Any) -> tuple[int, str]:
     return matches[0]["id"], matches[0].get("name") or str(matches[0]["id"])
 
 
-# ---------------------------------------------------------------- 工具实现
+# ---------------------------------------------------------------- tools
 
 def tool_canvas_status() -> Any:
-    """连通性自检。出问题先用它。"""
+    """Connectivity self-check. Start here when something is wrong."""
     client = _client()
     me = client.get("/users/self")
     courses = _active_courses(client)
@@ -83,7 +83,7 @@ def tool_canvas_status() -> Any:
 
 
 def tool_list_courses(include_finished: bool = False) -> Any:
-    """列出课程。默认只给还在进行的。"""
+    """List courses. Defaults to the ones still running."""
     client = _client()
     if include_finished:
         raw = client.paginate(
@@ -97,9 +97,11 @@ def tool_list_courses(include_finished: bool = False) -> Any:
 
 
 def tool_upcoming(days: int = 14, include_done: bool = False) -> Any:
-    """未来 N 天的作业、考试、日历事件和公告，按时间排序。
+    """Assignments, exams, calendar events and announcements for the next N days,
+    sorted by time.
 
-    走 /planner/items，它把各种类型揉在一个流里，比逐个课程翻作业省事。
+    Backed by /planner/items, which merges every type into one stream — cheaper
+    than walking each course's assignment list.
     """
     if days < 1 or days > 180:
         raise ValueError("days 取值范围 1-180。")
@@ -120,7 +122,7 @@ def tool_upcoming(days: int = 14, include_done: bool = False) -> Any:
 
 
 def tool_overdue() -> Any:
-    """还没交、且已经过了截止时间的作业。"""
+    """Assignments past their due date that have not been submitted."""
     client = _client()
     raw = client.paginate("/users/self/todo", limit=100)
     out = []
@@ -137,7 +139,7 @@ def tool_overdue() -> Any:
 
 def tool_list_assignments(course: Any = None, only_upcoming: bool = False,
                           limit: int = 100) -> Any:
-    """某门课的作业列表，含截止时间和你的提交状态。"""
+    """One course's assignments, with due dates and your submission status."""
     client = _client()
     cid, cname = _resolve_course(client, course)
     raw = client.paginate(
@@ -156,7 +158,8 @@ def tool_list_assignments(course: Any = None, only_upcoming: bool = False,
 
 
 def tool_get_assignment(course: Any, assignment_id: int) -> Any:
-    """取一条作业的完整详情，包含要求正文（HTML 会转成纯文本）。"""
+    """Full detail for one assignment, including the instructions body
+    (HTML is converted to plain text)."""
     client = _client()
     cid, cname = _resolve_course(client, course)
     raw = client.get(
@@ -167,7 +170,7 @@ def tool_get_assignment(course: Any, assignment_id: int) -> Any:
 
 
 def tool_list_announcements(course: Any = None, days: int = 30, limit: int = 20) -> Any:
-    """最近的课程公告。不指定 course 就把所有活跃课程一起查。"""
+    """Recent course announcements. With no course, queries every active course."""
     client = _client()
     if course:
         cid, cname = _resolve_course(client, course)
@@ -207,9 +210,10 @@ def tool_list_announcements(course: Any = None, days: int = 30, limit: int = 20)
 
 
 def tool_list_grades() -> Any:
-    """各门课的当前总分。只有已经登过分的课才有数。"""
+    """Current overall score per course. Only courses with posted grades appear."""
     client = _client()
-    # 成绩里会出现已结课的课程，只查活跃列表的话名字会退化成 "course <id>"。
+    # Grades include finished courses; querying only the active list degrades
+    # their names to "course <id>".
     all_courses = client.paginate(
         "/courses",
         **{"include[]": ["term"], "state[]": ["available", "completed"]},
@@ -242,7 +246,7 @@ def tool_list_grades() -> Any:
     return {"count": len(out), "grades": out}
 
 
-# ---------------------------------------------------------------- 工具声明
+# ---------------------------------------------------------------- tool schemas
 
 def _s(**props: Any) -> dict:
     return {"type": "object", "properties": props}
@@ -350,7 +354,7 @@ def _call_tool(name: str, args: dict) -> dict:
         return {"content": [{"type": "text", "text": str(e)}], "isError": True}
     except TypeError as e:
         return {"content": [{"type": "text", "text": f"参数有误: {e}"}], "isError": True}
-    except Exception as e:  # noqa: BLE001 - 兜底，避免整个 server 挂掉
+    except Exception as e:  # noqa: BLE001 - last resort, never take down the server
         _log(traceback.format_exc())
         return {"content": [{"type": "text", "text": f"内部错误: {e}"}], "isError": True}
 

@@ -1,11 +1,12 @@
-"""把 Canvas 的原始响应整理成便于阅读的结构。
+"""Reshape raw Canvas responses into something readable.
 
-最重要的一件事是时区。Canvas 的 `due_at` 一律是 UTC，而 Fuqua 的截止时间
-基本都设在本地 23:59，于是接口里长这样：
+The single most important thing here is the timezone. Canvas returns `due_at` in
+UTC, and Fuqua sets deadlines at 23:59 local, so the API reports:
 
-    "due_at": "2026-09-07T03:59:59Z"   # 实际是 09-06 周日 23:59 EDT
+    "due_at": "2026-09-07T03:59:59Z"   # actually Sun 09-06 23:59 EDT
 
-直接读日期会把每个 DDL 都记晚一天。所有对外暴露的时间都必须过 `local()`。
+Reading the date directly puts every deadline a day late. Every timestamp exposed
+to callers must go through `local()`.
 """
 from __future__ import annotations
 
@@ -29,8 +30,8 @@ def tz() -> timezone:
     if ZoneInfo is not None:
         try:
             return ZoneInfo(name)  # type: ignore[return-value]
-        except Exception:  # noqa: BLE001 - 时区名写错就退回 UTC，不要让 server 挂掉
-            pass
+        except Exception:  # noqa: BLE001 - a bad tz name falls back to UTC rather
+            pass                # than taking down the whole server
     return timezone.utc
 
 
@@ -48,9 +49,9 @@ def now() -> datetime:
 
 
 def local(iso: str | None) -> dict | None:
-    """UTC 字符串 -> 本地时间的多种表示，附带相对今天的天数。
+    """UTC string -> several local-time representations plus a day offset.
 
-    返回 None 表示这个字段本来就没有截止时间（Canvas 里很常见）。
+    Returns None when the field simply has no deadline, which is common in Canvas.
     """
     dt = parse(iso)
     if dt is None:
@@ -75,7 +76,8 @@ def local(iso: str | None) -> dict | None:
 
 
 class _Stripper(html.parser.HTMLParser):
-    """Canvas 的描述字段是 HTML。只留纯文本，段落间补换行。"""
+    """Canvas description fields are HTML. Keep the text, insert breaks between
+    blocks."""
 
     BREAK = {"p", "br", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6"}
 
@@ -104,13 +106,14 @@ class _Stripper(html.parser.HTMLParser):
 
     def text(self) -> str:
         joined = "".join(self.parts)
-        joined = re.sub(r"[ \t ]+", " ", joined)
+        joined = re.sub(r"[ \t ]+", " ", joined)
         joined = re.sub(r"\n\s*\n\s*\n+", "\n\n", joined)
         return joined.strip()
 
 
 def plain(raw: str | None, limit: int = 4000) -> str:
-    """HTML -> 纯文本。超长截断，避免把整个 context window 塞满。"""
+    """HTML -> plain text. Truncated, so one assignment cannot flood the context
+    window."""
     if not raw:
         return ""
     parser = _Stripper()
@@ -118,7 +121,7 @@ def plain(raw: str | None, limit: int = 4000) -> str:
         parser.feed(raw)
         parser.close()
         text = parser.text()
-    except Exception:  # noqa: BLE001 - 畸形 HTML 退回粗暴去标签
+    except Exception:  # noqa: BLE001 - malformed HTML falls back to blunt tag strip
         text = re.sub(r"<[^>]+>", " ", raw)
         text = re.sub(r"\s+", " ", text).strip()
     if len(text) > limit:
@@ -126,7 +129,7 @@ def plain(raw: str | None, limit: int = 4000) -> str:
     return text
 
 
-# ---------------------------------------------------------------- 结构整理
+# ---------------------------------------------------------------- shaping
 
 def course(raw: dict) -> dict:
     term = (raw.get("term") or {}).get("name")
@@ -183,10 +186,12 @@ def assignment(raw: dict, course_name: str | None = None, detail: bool = False) 
 
 
 def planner_item(raw: dict) -> dict:
-    """planner/items 把作业、日历事件、公告、测验揉在一个流里。
+    """planner/items merges assignments, calendar events, announcements and
+    quizzes into one stream.
 
-    统一的时间字段是 `plannable_date`，各类型自己的时间字段（due_at / start_at /
-    posted_at）藏在 `plannable` 里，形状不一致，所以以 plannable_date 为准。
+    The one consistent timestamp is `plannable_date`. Each type's own field
+    (due_at / start_at / posted_at) is nested under `plannable` with a different
+    shape per type, so always key off `plannable_date`.
     """
     inner = raw.get("plannable") or {}
     kind = raw.get("plannable_type") or "?"
@@ -202,7 +207,8 @@ def planner_item(raw: dict) -> dict:
         out["points_possible"] = inner["points_possible"]
 
     sub = raw.get("submissions")
-    # 没有提交概念的条目（日历事件、公告）这里是 False 而不是对象
+    # Entries with no notion of submission (calendar events, announcements) send
+    # False here rather than an object
     if isinstance(sub, dict):
         out["submitted"] = bool(sub.get("submitted"))
         for flag in ("missing", "late", "graded"):
@@ -223,6 +229,6 @@ def announcement(raw: dict) -> dict:
 
 
 def window(days: int) -> tuple[str, str]:
-    """给 planner 用的日期窗口，闭区间，按本地时区算。"""
+    """Inclusive date window for the planner endpoint, computed in local time."""
     today = now().astimezone(tz()).date()
     return today.isoformat(), (today + timedelta(days=days)).isoformat()

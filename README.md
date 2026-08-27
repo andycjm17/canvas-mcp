@@ -1,101 +1,118 @@
 # canvas-mcp
 
-Canvas LMS 的 MCP server。纯标准库，无第三方依赖，**只读**。
+An MCP server for Canvas LMS. Standard library only, no dependencies, **read-only**.
 
-面向 Fuqua 的独立实例开发，但 host 可配，任何 Canvas 都能用。
+Built against Fuqua's own Canvas instance, but the host is configurable, so it works
+against any Canvas deployment.
 
-## 为什么需要它
+## Why
 
-Canvas 网页端要点四五层才能看到「这周到底要交什么」，而且跨课程没有统一视图。
-这个 server 把作业、考试、课程日历、公告合并成一条按时间排序的流。
+The Canvas web UI takes four or five clicks to answer "what is actually due this week,"
+and there is no cross-course view. This server merges assignments, exams, course
+calendar entries and announcements into one stream sorted by time.
 
-## 两个坑（也是写这个东西的主要动机）
+## Two traps (and the main reason this exists)
 
-**1. token 不跨实例。**
-Fuqua 用的是 `fuqua.instructure.com`，**不是** `canvas.duke.edu`。同一个 token
-打 Duke 主站返回 `401 Invalid access token.` —— 看着像 token 失效，其实是 host 错了。
-本 server 的 401 报错文案会直接把这件事说出来。
+**1. Tokens do not cross instances.**
+Fuqua runs `fuqua.instructure.com`, **not** `canvas.duke.edu`. The same token against
+the Duke host returns `401 Invalid access token.` — which looks like an expired token
+but is really a wrong host. This server's 401 message says so directly.
 
-**2. `due_at` 是 UTC，直接读会把每个 DDL 记晚一天。**
+**2. `due_at` is UTC, and reading it as-is puts every deadline a day late.**
 
 ```
-"due_at": "2026-09-07T03:59:59Z"   ← 实际是 09-06 周日 23:59 EDT
+"due_at": "2026-09-07T03:59:59Z"   ← actually Sun 09-06 23:59 EDT
 ```
 
-学校把截止时间设在本地 23:59，转成 UTC 就翻到了次日凌晨。所有对外输出的时间
-都过 `model.local()`，同时给出本地时刻、星期和「几天后 / 逾期几天」。
+The school sets deadlines at 23:59 local, which rolls past midnight in UTC. Every
+timestamp this server emits goes through `model.local()`, which returns the local
+time, the weekday, and a relative offset ("10 days out" / "24 days overdue").
 
-## 安装
+## Install
 
 ```bash
 git clone git@github.com:andycjm17/canvas-mcp.git
 cd canvas-mcp
 ```
 
-不用装依赖，Python 3.9+ 即可（用到 `zoneinfo`）。
+No dependencies to install. Python 3.9+ (it uses `zoneinfo`).
 
-## 配置
+## Configure
 
-token 在 Canvas → Account → Settings → Approved Integrations → **+ New Access Token** 生成。
+Generate a token in Canvas under Account → Settings → Approved Integrations →
+**+ New Access Token**.
 
-写进 `~/.config/canvas-mcp/config.json`（会被强制设成 `0600`）：
+Write it to `~/.config/canvas-mcp/config.json` (forced to mode `0600`):
 
 ```bash
 python3 -c "
 import sys; sys.path.insert(0, '.')
 from canvas_mcp import config
-config.save('<你的 token>', host_value='fuqua.instructure.com', timezone_value='America/New_York')
+config.save('<your token>', host_value='fuqua.instructure.com', timezone_value='America/New_York')
 "
 ```
 
-也可以走环境变量：`CANVAS_MCP_TOKEN` / `CANVAS_MCP_HOST` / `CANVAS_MCP_TZ`（优先级更高）。
+Environment variables work too and take precedence: `CANVAS_MCP_TOKEN`,
+`CANVAS_MCP_HOST`, `CANVAS_MCP_TZ`.
 
-**token 永远不进版本库。** `.gitignore` 里已经挡了 `config.json`、`*.token`、`.env`。
+**The token never enters version control.** `.gitignore` already blocks
+`config.json`, `*.token` and `.env`.
 
-## 注册到 Claude Code
+## Register with Claude Code
 
 ```bash
 claude mcp add canvas -s user -- python3 /path/to/canvas-mcp/run.py
 ```
 
-## 工具
+## Tools
 
-| 工具 | 用途 |
+| Tool | Purpose |
 |---|---|
-| `canvas_status` | 自检：token 有效性、连的哪个实例、时区。排查问题先用它 |
-| `list_courses` | 课程列表，含学期和当前总分 |
-| `upcoming` | **主力工具**。未来 N 天的作业 / 考试 / 日历 / 公告，按时间排序 |
-| `overdue` | 过期未交的作业 |
-| `list_assignments` | 某门课的全部作业，含截止时间、分值、提交与评分状态 |
-| `get_assignment` | 单条作业的完整要求正文（HTML 转纯文本） |
-| `list_announcements` | 最近公告，可跨课程 |
-| `list_grades` | 各门课当前总分 |
+| `canvas_status` | Self-check: token validity, which instance, timezone. Start here when debugging |
+| `list_courses` | Courses with term and current overall score |
+| `upcoming` | **The main one.** Assignments, exams, calendar and announcements for the next N days, sorted by time |
+| `overdue` | Past-due work that has not been submitted |
+| `list_assignments` | One course's assignments, with due dates, point values, submission and grading status |
+| `get_assignment` | Full instructions body for a single assignment (HTML converted to plain text) |
+| `list_announcements` | Recent announcements, optionally across all courses |
+| `list_grades` | Current overall score per course |
 
-课程参数接受 id 或课程名，名字可以只写一部分（`"Data Analytics"` 能匹配到
-`Data Analytics for Business`）。匹配到多门会报错并列出候选，不会瞎猜。
+Course parameters accept an id or a name, and the name can be partial —
+`"Data Analytics"` resolves to `Data Analytics for Business`. An ambiguous name
+raises an error listing the candidates rather than guessing.
 
-## 实现说明
+Tool descriptions and error messages are in Chinese, matching the language the
+author works in. Comments and this README are in English.
 
-- **分页**：Canvas 把下一页放在 `Link` 响应头的 `rel="next"` 里，默认 `per_page=10`。
-  不跟 next 的话课程一多就静默截断。`api.paginate()` 会跟到底（上限 50 页防成环）。
-- **数组参数**：Canvas 用 `state[]=active&state[]=completed` 这种同名重复 key，
-  所以 `_encode()` 在值是 list 时展开成多个 pair，不能直接用 `urlencode(dict)`。
-- **`/planner/items`**：`upcoming` 的数据源。它把作业、日历事件、公告、测验揉进
-  一个流，统一时间字段是 `plannable_date`；各类型自己的时间字段藏在 `plannable`
-  里且形状不一致，所以一律以 `plannable_date` 为准。
-- **成绩**：往期课程不在 `enrollment_state=active` 的列表里，查名字时必须带上
-  `state[]=completed`，否则会退化成 `"course 3639"`。
+## Implementation notes
 
-## 只读
+- **Pagination**: Canvas puts the next page in the `Link` response header under
+  `rel="next"`, and defaults to `per_page=10`. Without following `next`, anything
+  sizeable is silently truncated. `api.paginate()` follows it to the end, capped at
+  50 pages to guard against a cyclic chain.
+- **Array parameters**: Canvas repeats keys — `state[]=active&state[]=completed` —
+  so `_encode()` expands list values into multiple pairs. A plain
+  `urlencode(dict)` will not do.
+- **`/planner/items`**: the data source for `upcoming`. It merges assignments,
+  calendar events, announcements and quizzes into one stream. The one consistent
+  timestamp is `plannable_date`; each type's own field is nested under `plannable`
+  with a different shape, so always key off `plannable_date`.
+- **Grades**: finished courses are absent from `enrollment_state=active`, so the
+  name lookup must include `state[]=completed` or entries degrade to
+  `"course 3639"`.
 
-所有工具都只发 GET。不会交作业、改成绩、发帖或退课。
+## Read-only
 
-## 布局
+Every tool issues GETs only. It will not submit assignments, change grades, post to
+discussions, or drop courses.
+
+## Layout
 
 ```
-run.py                 入口（显式处理 sys.path，MCP client 的工作目录不确定）
-canvas_mcp/config.py   凭证与实例配置，0600 写入
-canvas_mcp/api.py      HTTP 客户端、分页、错误翻译
-canvas_mcp/model.py    时区转换、HTML 转纯文本、结构整理
-canvas_mcp/server.py   工具定义 + JSON-RPC over stdio
+run.py                 Entry point (sets sys.path explicitly; MCP clients
+                       start the server from an unpredictable directory)
+canvas_mcp/config.py   Credentials and instance config, written 0600
+canvas_mcp/api.py      HTTP client, pagination, error translation
+canvas_mcp/model.py    Timezone conversion, HTML to text, response shaping
+canvas_mcp/server.py   Tool definitions + JSON-RPC over stdio
 ```
