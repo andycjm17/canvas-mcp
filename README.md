@@ -135,6 +135,33 @@ ship and can never take the server down.
   than at module level, because `config` needs `i18n` for its own error strings.
   A top-level import in either direction deadlocks on the circular reference.
 
+## Scheduled digest (macOS)
+
+`notify.py` sends what's due as a macOS notification. Point launchd at it to get
+a digest twice a day:
+
+```bash
+./notify.py --dry-run   # see what it would send
+./notify.py             # send it
+```
+
+Install it as a LaunchAgent with a `StartCalendarInterval` for each time you want
+it. Two things that will bite you:
+
+- **launchd cannot read `~/Desktop`, `~/Documents` or `~/Downloads`.** macOS
+  blocks background processes from those directories, and the failure surfaces as
+  `Operation not permitted` on the script itself. Keep the checkout somewhere
+  outside them.
+- **Use an absolute interpreter path.** launchd starts with almost no
+  environment, so `python3` alone will not resolve. `/usr/bin/python3` is the
+  stable choice, and this package runs on the 3.9 it ships.
+
+Set `"notify_ignore": [assignment_id, ...]` in config.json to silence items you
+have decided not to do — otherwise an abandoned onboarding checklist leads every
+notification until the term ends.
+
+Email is not wired up; `send_email()` in `notify.py` is a stub.
+
 ## Read-only
 
 Every tool issues GETs only. It will not submit assignments, change grades, post to
@@ -150,6 +177,7 @@ canvas_mcp/api.py      HTTP client, pagination, error translation
 canvas_mcp/model.py    Timezone conversion, HTML to text, response shaping
 canvas_mcp/server.py   Tool definitions + JSON-RPC over stdio
 canvas_mcp/i18n/       Message catalogues; en.py is the default and the fallback
+notify.py              macOS notification digest, for launchd (optional)
 ```
 
 ## License

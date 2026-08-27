@@ -64,4 +64,11 @@ MESSAGES = {
     "arg.days_back": "How many days back to look. Defaults to 30.",
     "arg.limit_20": "Maximum number of items to return. Defaults to 20.",
     "tool.list_grades": "Current overall score for each course.",
+
+    # ---------------------------------------------------------------- notify
+    "notify.title": "Canvas",
+    "notify.summary": "{due} due · {overdue} overdue",
+    "notify.due_only": "{due} due in the next {days} days",
+    "notify.clear": "Nothing due in the next {days} days",
+    "notify.line": "{rel} {time} · {name}",
 }
