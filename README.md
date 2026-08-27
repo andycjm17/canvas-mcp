@@ -177,6 +177,12 @@ account fails with a `535 Username and Password not accepted` that looks
 identical to a typo. `smtp_host` and `smtp_port` default to Gmail and can be
 overridden. Spaces in the password are stripped, so paste it as shown.
 
+The mail goes out as multipart/alternative: an HTML table for clients that
+render it, a plain list for those that do not. The table is HTML rather than
+aligned ASCII because CJK characters are double-width, so padding by character
+count never lines up. Styles are inline and layout is `<table>`-based — Outlook
+renders mail through Word, which ignores stylesheets, flexbox and grid.
+
 Email is best-effort: a failure is logged but does not fail the run, since the
 notification has already been delivered and a mail outage at 8am is not a broken
 job.

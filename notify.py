@@ -20,6 +20,7 @@ import sys
 import traceback
 from datetime import datetime
 from email.message import EmailMessage
+from html import escape
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -103,8 +104,26 @@ def notify(title: str, subtitle: str, body: str) -> None:
                    capture_output=True, timeout=30)
 
 
+def _rows(due: list, overdue: list) -> list:
+    """Flatten both buckets into (overdue?, when, course, name) tuples."""
+    out = []
+    for item in overdue:
+        out.append((True, item.get("due") or {}, item.get("course", ""),
+                    item.get("name", "")))
+    for item in due:
+        out.append((False, item.get("when") or {}, item.get("course", ""),
+                    item.get("title", "")))
+    return out
+
+
 def compose_email(due: list, overdue: list) -> tuple:
-    """Build (subject, body). Unlike the notification, this can be complete."""
+    """Build (subject, plain_text, html).
+
+    Both bodies are sent as multipart/alternative: Outlook renders the table,
+    and anything that will not renders the text. The table is HTML rather than
+    aligned ASCII because CJK characters are double-width, so column padding by
+    character count does not line up.
+    """
     if overdue:
         summary = i18n.t("notify.summary", due=len(due), overdue=len(overdue))
     elif due:
@@ -112,34 +131,60 @@ def compose_email(due: list, overdue: list) -> tuple:
     else:
         summary = i18n.t("notify.clear", days=WINDOW_DAYS)
 
-    # A section header is only worth its space when there are two sections to
-    # tell apart; with one, it just restates the summary line above it.
-    headed = bool(overdue) and bool(due)
+    rows = _rows(due, overdue)
 
-    def block(header: str, items: list, when_key: str, name_key: str) -> list:
-        out = [header, "-" * 46, ""] if headed else []
-        for item in items:
-            when = item.get(when_key) or {}
-            # "2026-09-06 23:59" -> "09-06 23:59"; the year is never the question
+    # ---------------------------------------------------------------- text
+    text = [summary, ""]
+    for late, when, course, name in rows:
+        stamp = str(when.get("local", ""))[5:]
+        text.append(f"  {stamp}  {when.get('weekday','')}"
+                    f"   ·   {when.get('relative','')}")
+        text.append(f"      {name}")
+        if course:
+            text.append(f"      {course}")
+        text.append("")
+
+    # ---------------------------------------------------------------- html
+    # Inline styles only, and tables for layout: Outlook renders mail through
+    # Word, which ignores stylesheets, flexbox and grid.
+    font = ("-apple-system,'Segoe UI',Roboto,'Helvetica Neue',"
+            "'PingFang SC','Microsoft YaHei',sans-serif")
+    th = ("padding:10px 14px;text-align:left;font-weight:600;font-size:12px;"
+          "letter-spacing:.06em;text-transform:uppercase;color:#6b7280;"
+          "border-bottom:2px solid #e5e7eb;white-space:nowrap")
+
+    html = [
+        f'<div style="font-family:{font};color:#111827;max-width:760px">',
+        f'<p style="font-size:15px;margin:0 0 18px">{escape(summary)}</p>',
+    ]
+    if rows:
+        html.append('<table cellpadding="0" cellspacing="0" border="0" '
+                    'style="border-collapse:collapse;width:100%;font-size:14px">')
+        html.append(f'<tr><th style="{th}">{escape(i18n.t("table.ddl"))}</th>'
+                    f'<th style="{th}">{escape(i18n.t("table.course"))}</th>'
+                    f'<th style="{th}">{escape(i18n.t("table.name"))}</th></tr>')
+        for late, when, course, name in rows:
+            td = ("padding:12px 14px;border-bottom:1px solid #f3f4f6;"
+                  "vertical-align:top")
+            accent = "#b91c1c" if late else "#111827"
             stamp = str(when.get("local", ""))[5:]
-            out.append(f"  {stamp}  {when.get('weekday','')}"
-                       f"   ·   {when.get('relative','')}")
-            out.append(f"      {item.get(name_key, '')}")
-            if item.get("course"):
-                out.append(f"      {item['course']}")
-            out.append("")
-        return out
+            html.append(
+                f'<tr>'
+                f'<td style="{td};white-space:nowrap">'
+                f'<span style="color:{accent};font-weight:600">{escape(stamp)}'
+                f' {escape(str(when.get("weekday","")))}</span><br>'
+                f'<span style="color:{accent};font-size:12px">'
+                f'{escape(str(when.get("relative","")))}</span></td>'
+                f'<td style="{td};color:#6b7280">{escape(str(course))}</td>'
+                f'<td style="{td}">{escape(str(name))}</td>'
+                f'</tr>')
+        html.append('</table>')
+    html.append('</div>')
 
-    lines = [summary, ""]
-    if overdue:
-        lines += block(i18n.t("notify.section_overdue"), overdue, "due", "name")
-    if due:
-        lines += block(i18n.t("notify.section_due"), due, "when", "title")
-
-    return i18n.t("notify.subject"), "\n".join(lines).rstrip() + "\n"
+    return i18n.t("notify.subject"), "\n".join(text).rstrip() + "\n", "".join(html)
 
 
-def send_email(subject: str, body: str) -> bool:
+def send_email(subject: str, body: str, html: str = "") -> bool:
     """Send over SMTP. Returns False when no credentials are configured.
 
     Gmail rejects account passwords over SMTP; this needs an app password
@@ -157,6 +202,8 @@ def send_email(subject: str, body: str) -> bool:
     msg["To"] = cfg.get("email_to") or user
     msg["Subject"] = subject
     msg.set_content(body)
+    if html:
+        msg.add_alternative(html, subtype="html")
 
     host = cfg.get("smtp_host", "smtp.gmail.com")
     port = int(cfg.get("smtp_port", 465))
@@ -178,8 +225,9 @@ def main() -> int:
     if dry:
         print(f"--- notification ---\ntitle   : {title}\nsubtitle: {subtitle}\n"
               f"body    :\n{body}")
-        subject, mail_body = compose_email(due, overdue)
-        print(f"\n--- email ---\nsubject: {subject}\n\n{mail_body}")
+        subject, mail_body, mail_html = compose_email(due, overdue)
+        print(f"\n--- email (text) ---\nsubject: {subject}\n\n{mail_body}")
+        print(f"--- email (html) ---\n{mail_html[:400]}…")
         return 0
 
     try:
@@ -192,8 +240,9 @@ def main() -> int:
     # landed, and a mail outage at 8am should not read as a broken job.
     mailed = "no creds"
     try:
-        subject, mail_body = compose_email(due, overdue)
-        mailed = "sent" if send_email(subject, mail_body) else "no creds"
+        subject, mail_body, mail_html = compose_email(due, overdue)
+        mailed = ("sent" if send_email(subject, mail_body, mail_html)
+                  else "no creds")
     except Exception as e:  # noqa: BLE001
         mailed = f"FAILED ({e})"
         log(f"email failed: {traceback.format_exc()}")

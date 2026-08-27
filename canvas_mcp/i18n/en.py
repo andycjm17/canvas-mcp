@@ -74,4 +74,7 @@ MESSAGES = {
     "notify.subject": "Canvas Update",
     "notify.section_overdue": "OVERDUE",
     "notify.section_due": "DUE",
+    "table.ddl": "Due",
+    "table.course": "Course",
+    "table.name": "Assignment",
 }
