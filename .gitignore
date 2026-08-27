@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# 凭证一律不进版本库。token 存在 ~/.config/canvas-mcp/config.json
+config.json
+*.token
+.env
