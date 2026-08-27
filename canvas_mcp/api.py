@@ -20,7 +20,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from . import config
+from . import config, i18n
 
 TIMEOUT = 30
 MAX_PAGES = 50  # Guard against a cyclic pagination chain looping forever
@@ -80,22 +80,23 @@ class Client:
                 pass
 
             if e.code == 401:
-                raise ApiError(
-                    f"401 {detail or '认证失败'}。检查 token 是不是 {self.host} "
-                    f"这个实例签发的——Canvas 的 token 不跨实例。"
-                ) from e
+                raise ApiError(i18n.t(
+                    "err.auth",
+                    detail=detail or i18n.t("err.auth_generic"),
+                    host=self.host,
+                )) from e
             if e.code == 403:
-                raise ApiError(f"403 没权限访问该资源。{detail}") from e
+                raise ApiError(i18n.t("err.forbidden", detail=detail)) from e
             if e.code == 404:
-                raise ApiError(f"404 资源不存在或你没有访问权。{detail}") from e
+                raise ApiError(i18n.t("err.not_found", detail=detail)) from e
             raise ApiError(f"HTTP {e.code} {detail or e.reason}") from e
         except urllib.error.URLError as e:
-            raise ApiError(f"连不上 {self.host}：{e.reason}") from e
+            raise ApiError(i18n.t("err.unreachable", host=self.host, reason=e.reason)) from e
 
         try:
             return json.loads(body), link
         except ValueError as e:
-            raise ApiError(f"响应不是合法 JSON（前 200 字符）：{body[:200]}") from e
+            raise ApiError(i18n.t("err.bad_json", body=body[:200])) from e
 
     # ------------------------------------------------------------ public
 

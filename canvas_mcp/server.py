@@ -13,7 +13,7 @@ import sys
 import traceback
 from typing import Any, Callable
 
-from . import api, config, model
+from . import api, config, i18n, model
 
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_INFO = {"name": "canvas", "version": "0.1.0"}
@@ -34,7 +34,7 @@ def _active_courses(client: api.Client) -> list[dict]:
 def _resolve_course(client: api.Client, name_or_id: Any) -> tuple[int, str]:
     """Resolve a course name (fuzzy) or id into (course_id, course_name)."""
     if name_or_id is None or name_or_id == "":
-        raise ValueError("要指定 course：课程 id 或课程名（可只写一部分）。")
+        raise ValueError(i18n.t("err.course_required"))
 
     courses = _active_courses(client)
     text = str(name_or_id).strip()
@@ -56,10 +56,10 @@ def _resolve_course(client: api.Client, name_or_id: Any) -> tuple[int, str]:
     ]
     if not matches:
         names = "、".join(c.get("name", "?") for c in courses)
-        raise ValueError(f"找不到课程 {text!r}。当前活跃课程：{names}")
+        raise ValueError(i18n.t("err.course_not_found", name=repr(text), names=names))
     if len(matches) > 1:
         names = "、".join(c.get("name", "?") for c in matches)
-        raise ValueError(f"课程名 {text!r} 不唯一，匹配到：{names}")
+        raise ValueError(i18n.t("err.course_ambiguous", name=repr(text), names=names))
     return matches[0]["id"], matches[0].get("name") or str(matches[0]["id"])
 
 
@@ -76,9 +76,9 @@ def tool_canvas_status() -> Any:
         "user_id": me.get("id"),
         "timezone": config.timezone_name(),
         "active_courses": len(courses),
-        "token_source": ("环境变量 CANVAS_MCP_TOKEN" if "CANVAS_MCP_TOKEN" in os.environ
+        "token_source": (i18n.t("status.token_env") if "CANVAS_MCP_TOKEN" in os.environ
                          else str(config.CONFIG_PATH)),
-        "note": "Canvas 返回的时间都是 UTC，本 server 已按上面的时区转成本地时间。",
+        "note": i18n.t("status.note"),
     }
 
 
@@ -104,7 +104,7 @@ def tool_upcoming(days: int = 14, include_done: bool = False) -> Any:
     than walking each course's assignment list.
     """
     if days < 1 or days > 180:
-        raise ValueError("days 取值范围 1-180。")
+        raise ValueError(i18n.t("err.days_range"))
     client = _client()
     start, end = model.window(days)
     raw = client.paginate("/planner/items", start_date=start, end_date=end, limit=200)
@@ -252,49 +252,48 @@ def _s(**props: Any) -> dict:
     return {"type": "object", "properties": props}
 
 
-_COURSE = {"type": "string", "description": "课程 id 或课程名（可只写一部分，如 'Data Analytics'）"}
+_COURSE = {"type": "string", "description": i18n.t("tool.course_param")}
 
 TOOLS: list[dict] = [
     {
         "name": "canvas_status",
-        "description": "自检：确认 token 有效、连的是哪个 Canvas 实例、时区设置。排查问题先用它。",
+        "description": i18n.t("tool.canvas_status"),
         "inputSchema": _s(),
     },
     {
         "name": "list_courses",
-        "description": "列出课程及其学期、当前总分。",
+        "description": i18n.t("tool.list_courses"),
         "inputSchema": _s(include_finished={
-            "type": "boolean", "description": "是否带上已结课的，默认否"}),
+            "type": "boolean", "description": i18n.t("arg.include_finished")}),
     },
     {
         "name": "upcoming",
-        "description": "未来 N 天要交的作业、考试、课程日历和公告，按时间排序。"
-                       "问『这周要交什么』『接下来有啥』用这个。",
+        "description": i18n.t("tool.upcoming"),
         "inputSchema": _s(
-            days={"type": "integer", "description": "往后看几天，默认 14"},
-            include_done={"type": "boolean", "description": "是否包含已提交的，默认否"},
+            days={"type": "integer", "description": i18n.t("arg.days_forward")},
+            include_done={"type": "boolean", "description": i18n.t("arg.include_done")},
         ),
     },
     {
         "name": "overdue",
-        "description": "已经过了截止时间但还没交的作业。",
+        "description": i18n.t("tool.overdue"),
         "inputSchema": _s(),
     },
     {
         "name": "list_assignments",
-        "description": "某门课的全部作业，含截止时间、分值和你的提交/评分状态。",
+        "description": i18n.t("tool.list_assignments"),
         "inputSchema": {
             **_s(
                 course=_COURSE,
-                only_upcoming={"type": "boolean", "description": "只要还没到期且未提交的，默认否"},
-                limit={"type": "integer", "description": "最多返回条数，默认 100"},
+                only_upcoming={"type": "boolean", "description": i18n.t("arg.only_upcoming")},
+                limit={"type": "integer", "description": i18n.t("arg.limit_100")},
             ),
             "required": ["course"],
         },
     },
     {
         "name": "get_assignment",
-        "description": "取一条作业的完整要求正文（HTML 已转纯文本）。id 从 list_assignments 拿。",
+        "description": i18n.t("tool.get_assignment"),
         "inputSchema": {
             **_s(course=_COURSE, assignment_id={"type": "integer"}),
             "required": ["course", "assignment_id"],
@@ -302,16 +301,16 @@ TOOLS: list[dict] = [
     },
     {
         "name": "list_announcements",
-        "description": "最近的课程公告。不指定 course 就查所有活跃课程。",
+        "description": i18n.t("tool.list_announcements"),
         "inputSchema": _s(
             course=_COURSE,
-            days={"type": "integer", "description": "往前看几天，默认 30"},
-            limit={"type": "integer", "description": "最多返回条数，默认 20"},
+            days={"type": "integer", "description": i18n.t("arg.days_back")},
+            limit={"type": "integer", "description": i18n.t("arg.limit_20")},
         ),
     },
     {
         "name": "list_grades",
-        "description": "各门课的当前总分。",
+        "description": i18n.t("tool.list_grades"),
         "inputSchema": _s(),
     },
 ]
@@ -345,7 +344,8 @@ def _error(rid: Any, code: int, message: str) -> dict:
 def _call_tool(name: str, args: dict) -> dict:
     handler = HANDLERS.get(name)
     if handler is None:
-        return {"content": [{"type": "text", "text": f"未知工具: {name}"}], "isError": True}
+        return {"content": [{"type": "text", "text": i18n.t("err.unknown_tool", name=name)}],
+                "isError": True}
     try:
         out = handler(**args)
         text = json.dumps(out, ensure_ascii=False, indent=2)
@@ -353,10 +353,12 @@ def _call_tool(name: str, args: dict) -> dict:
     except (api.ApiError, config.ConfigError, ValueError) as e:
         return {"content": [{"type": "text", "text": str(e)}], "isError": True}
     except TypeError as e:
-        return {"content": [{"type": "text", "text": f"参数有误: {e}"}], "isError": True}
+        return {"content": [{"type": "text", "text": i18n.t("err.bad_args", error=e)}],
+                "isError": True}
     except Exception as e:  # noqa: BLE001 - last resort, never take down the server
         _log(traceback.format_exc())
-        return {"content": [{"type": "text", "text": f"内部错误: {e}"}], "isError": True}
+        return {"content": [{"type": "text", "text": i18n.t("err.internal", error=e)}],
+                "isError": True}
 
 
 def handle(msg: dict) -> dict | None:

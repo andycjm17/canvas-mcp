@@ -15,15 +15,12 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from . import config
+from . import config, i18n
 
 try:
     from zoneinfo import ZoneInfo
 except ImportError:  # pragma: no cover - Python < 3.9
     ZoneInfo = None  # type: ignore[assignment]
-
-WEEKDAY_CN = "一二三四五六日"
-
 
 def tz() -> timezone:
     name = config.timezone_name()
@@ -59,16 +56,16 @@ def local(iso: str | None) -> dict | None:
     loc = dt.astimezone(tz())
     days = (loc.date() - now().astimezone(tz()).date()).days
     if days == 0:
-        rel = "今天"
+        rel = i18n.t("time.today")
     elif days == 1:
-        rel = "明天"
+        rel = i18n.t("time.tomorrow")
     elif days > 0:
-        rel = f"{days} 天后"
+        rel = i18n.t("time.in_days", n=days)
     else:
-        rel = f"逾期 {-days} 天"
+        rel = i18n.t("time.overdue", n=-days)
     return {
         "local": loc.strftime("%Y-%m-%d %H:%M"),
-        "weekday": f"周{WEEKDAY_CN[loc.weekday()]}",
+        "weekday": i18n.raw("time.weekdays")[loc.weekday()],
         "days_from_now": days,
         "relative": rel,
         "utc": iso,
@@ -125,7 +122,7 @@ def plain(raw: str | None, limit: int = 4000) -> str:
         text = re.sub(r"<[^>]+>", " ", raw)
         text = re.sub(r"\s+", " ", text).strip()
     if len(text) > limit:
-        text = text[:limit] + f"\n…（已截断，原文 {len(text)} 字符）"
+        text = text[:limit] + i18n.t("text.truncated", n=len(text))
     return text
 
 

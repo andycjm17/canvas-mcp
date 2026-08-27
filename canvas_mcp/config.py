@@ -12,6 +12,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from . import i18n
+
 CONFIG_DIR = Path(os.environ.get("CANVAS_MCP_HOME") or (Path.home() / ".config" / "canvas-mcp"))
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
@@ -19,6 +21,7 @@ CONFIG_PATH = CONFIG_DIR / "config.json"
 # same token with a 401.
 DEFAULT_HOST = "fuqua.instructure.com"
 DEFAULT_TZ = "America/New_York"
+DEFAULT_LANG = "en"
 
 
 class ConfigError(RuntimeError):
@@ -31,9 +34,9 @@ def _file() -> dict[str, Any]:
     try:
         data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except ValueError as e:
-        raise ConfigError(f"{CONFIG_PATH} 不是合法 JSON: {e}") from e
+        raise ConfigError(i18n.t("err.config_bad_json", path=CONFIG_PATH, error=e)) from e
     if not isinstance(data, dict):
-        raise ConfigError(f"{CONFIG_PATH} 顶层应该是一个对象")
+        raise ConfigError(i18n.t("err.config_not_object", path=CONFIG_PATH))
     return data
 
 
@@ -52,6 +55,14 @@ def base_url() -> str:
     return f"https://{host()}/api/v1"
 
 
+def lang() -> str:
+    """Catalogue used for tool descriptions and error messages. See canvas_mcp.i18n.
+
+    Defaults to English so a fresh clone is usable by anyone.
+    """
+    return _get("lang", "CANVAS_MCP_LANG", DEFAULT_LANG) or DEFAULT_LANG
+
+
 def timezone_name() -> str:
     """Display timezone. Canvas returns UTC; without conversion every deadline
     reads a day late."""
@@ -61,13 +72,7 @@ def timezone_name() -> str:
 def token() -> str:
     tok = _get("token", "CANVAS_MCP_TOKEN")
     if not tok:
-        raise ConfigError(
-            "没找到 Canvas access token。二选一：\n"
-            f"  1. 写进 {CONFIG_PATH}：{{\"token\": \"<token>\"}}（本模块会设成 0600）\n"
-            "  2. 设环境变量 CANVAS_MCP_TOKEN\n"
-            "token 在 Canvas → Account → Settings → Approved Integrations → "
-            "+ New Access Token 生成。"
-        )
+        raise ConfigError(i18n.t("err.no_token", path=CONFIG_PATH))
     return tok
 
 

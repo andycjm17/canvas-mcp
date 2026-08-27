@@ -53,7 +53,7 @@ config.save('<your token>', host_value='fuqua.instructure.com', timezone_value='
 ```
 
 Environment variables work too and take precedence: `CANVAS_MCP_TOKEN`,
-`CANVAS_MCP_HOST`, `CANVAS_MCP_TZ`.
+`CANVAS_MCP_HOST`, `CANVAS_MCP_TZ`, `CANVAS_MCP_LANG`.
 
 **The token never enters version control.** `.gitignore` already blocks
 `config.json`, `*.token` and `.env`.
@@ -81,8 +81,29 @@ Course parameters accept an id or a name, and the name can be partial —
 `"Data Analytics"` resolves to `Data Analytics for Business`. An ambiguous name
 raises an error listing the candidates rather than guessing.
 
-Tool descriptions and error messages are in Chinese, matching the language the
-author works in. Comments and this README are in English.
+## Language
+
+Everything a user reads — tool descriptions, error messages, relative-time labels
+like "in 10 days" — comes from a catalogue in `canvas_mcp/i18n/`, not from strings
+inlined in the logic. English (`en.py`) is the default and the only catalogue
+shipped here.
+
+To add another language, drop in `canvas_mcp/i18n/<code>.py` exporting a
+`MESSAGES` dict and select it with `"lang": "<code>"` in config.json, or
+`CANVAS_MCP_LANG`:
+
+```python
+# canvas_mcp/i18n/de.py
+MESSAGES = {
+    "time.today": "heute",
+    "err.days_range": "days muss zwischen 1 und 180 liegen.",
+    # ... any key you leave out falls back to English
+}
+```
+
+Missing keys, an unknown language code, and a catalogue that fails to import all
+fall back to English rather than raising, so a partial translation is safe to
+ship and can never take the server down.
 
 ## Implementation notes
 
@@ -100,6 +121,9 @@ author works in. Comments and this README are in English.
 - **Grades**: finished courses are absent from `enrollment_state=active`, so the
   name lookup must include `state[]=completed` or entries degrade to
   `"course 3639"`.
+- **Catalogue loading**: `i18n` imports `config` lazily, inside the lookup rather
+  than at module level, because `config` needs `i18n` for its own error strings.
+  A top-level import in either direction deadlocks on the circular reference.
 
 ## Read-only
 
@@ -115,4 +139,5 @@ canvas_mcp/config.py   Credentials and instance config, written 0600
 canvas_mcp/api.py      HTTP client, pagination, error translation
 canvas_mcp/model.py    Timezone conversion, HTML to text, response shaping
 canvas_mcp/server.py   Tool definitions + JSON-RPC over stdio
+canvas_mcp/i18n/       Message catalogues; en.py is the default and the fallback
 ```

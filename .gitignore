@@ -2,7 +2,13 @@ __pycache__/
 *.py[cod]
 .DS_Store
 
-# 凭证一律不进版本库。token 存在 ~/.config/canvas-mcp/config.json
+# Credentials never enter version control. The token lives in
+# ~/.config/canvas-mcp/config.json
 config.json
 *.token
 .env
+
+# Local-only message catalogues. English is the shipped default; translations
+# stay on the machine that uses them. A missing catalogue falls back to English,
+# so nothing here is required to run the server.
+canvas_mcp/i18n/zh.py
