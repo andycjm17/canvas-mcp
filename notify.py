@@ -14,10 +14,12 @@ macOS only — it shells out to osascript. Everything above this file is portabl
 from __future__ import annotations
 
 import os
+import smtplib
 import subprocess
 import sys
 import traceback
 from datetime import datetime
+from email.message import EmailMessage
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -101,9 +103,69 @@ def notify(title: str, subtitle: str, body: str) -> None:
                    capture_output=True, timeout=30)
 
 
-def send_email(title: str, subtitle: str, body: str) -> None:
-    """Placeholder. Wire up an SMTP client here when email is wanted."""
-    return
+def compose_email(due: list, overdue: list) -> tuple:
+    """Build (subject, body). Unlike the notification, this can be complete."""
+    if overdue:
+        subject = i18n.t("notify.summary", due=len(due), overdue=len(overdue))
+    elif due:
+        subject = i18n.t("notify.due_only", due=len(due), days=WINDOW_DAYS)
+    else:
+        subject = i18n.t("notify.clear", days=WINDOW_DAYS)
+
+    lines = []
+    if overdue:
+        lines.append(i18n.t("notify.section_overdue"))
+        for item in overdue:
+            w = item.get("due") or {}
+            lines.append(f"  {w.get('local','')} {w.get('weekday','')}"
+                         f"  [{w.get('relative','')}]  {item.get('name','')}")
+            if item.get("url"):
+                lines.append(f"      {item['url']}")
+        lines.append("")
+
+    if due:
+        lines.append(i18n.t("notify.section_due", days=WINDOW_DAYS))
+        for item in due:
+            w = item.get("when") or {}
+            lines.append(f"  {w.get('local','')} {w.get('weekday','')}"
+                         f"  [{w.get('relative','')}]  {item.get('title','')}")
+            course = item.get("course")
+            if course:
+                lines.append(f"      {course}")
+        lines.append("")
+
+    if not lines:
+        lines.append(i18n.t("notify.clear", days=WINDOW_DAYS))
+
+    lines.append(i18n.t("notify.footer"))
+    return f"Canvas · {subject}", "\n".join(lines)
+
+
+def send_email(subject: str, body: str) -> bool:
+    """Send over SMTP. Returns False when no credentials are configured.
+
+    Gmail rejects account passwords over SMTP; this needs an app password
+    (Google Account -> Security -> 2-Step Verification -> App passwords).
+    Put it in config.json as "smtp_password", alongside "smtp_user".
+    """
+    cfg = config._file()
+    user = os.environ.get("CANVAS_MCP_SMTP_USER") or cfg.get("smtp_user")
+    password = os.environ.get("CANVAS_MCP_SMTP_PASSWORD") or cfg.get("smtp_password")
+    if not (user and password):
+        return False
+
+    msg = EmailMessage()
+    msg["From"] = user
+    msg["To"] = cfg.get("email_to") or user
+    msg["Subject"] = subject
+    msg.set_content(body)
+
+    host = cfg.get("smtp_host", "smtp.gmail.com")
+    port = int(cfg.get("smtp_port", 465))
+    with smtplib.SMTP_SSL(host, port, timeout=30) as smtp:
+        smtp.login(user, password.replace(" ", ""))  # app passwords are shown spaced
+        smtp.send_message(msg)
+    return True
 
 
 def main() -> int:
@@ -116,17 +178,29 @@ def main() -> int:
         return 1
 
     if dry:
-        print(f"title   : {title}\nsubtitle: {subtitle}\nbody    :\n{body}")
+        print(f"--- notification ---\ntitle   : {title}\nsubtitle: {subtitle}\n"
+              f"body    :\n{body}")
+        subject, mail_body = compose_email(due, overdue)
+        print(f"\n--- email ---\nsubject: {subject}\n\n{mail_body}")
         return 0
 
     try:
         notify(title, subtitle, body)
-        send_email(title, subtitle, body)
     except Exception as e:  # noqa: BLE001
         log(f"FAILED to notify: {e}")
         return 1
 
-    log(f"sent — {subtitle}")
+    # Email is best-effort and must not fail the run: the notification already
+    # landed, and a mail outage at 8am should not read as a broken job.
+    mailed = "no creds"
+    try:
+        subject, mail_body = compose_email(due, overdue)
+        mailed = "sent" if send_email(subject, mail_body) else "no creds"
+    except Exception as e:  # noqa: BLE001
+        mailed = f"FAILED ({e})"
+        log(f"email failed: {traceback.format_exc()}")
+
+    log(f"notified — {subtitle} | email: {mailed}")
     return 0
 
 

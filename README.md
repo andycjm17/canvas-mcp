@@ -160,7 +160,26 @@ Set `"notify_ignore": [assignment_id, ...]` in config.json to silence items you
 have decided not to do — otherwise an abandoned onboarding checklist leads every
 notification until the term ends.
 
-Email is not wired up; `send_email()` in `notify.py` is a stub.
+To also send the digest by email, add SMTP credentials to config.json:
+
+```json
+{
+  "smtp_user": "you@gmail.com",
+  "smtp_password": "<16-character app password>",
+  "email_to": "wherever@you.want"
+}
+```
+
+Gmail rejects account passwords over SMTP — this needs an app password from
+Google Account → Security → 2-Step Verification → App passwords. Generate it
+while signed into the **sending** account; one made under a different Google
+account fails with a `535 Username and Password not accepted` that looks
+identical to a typo. `smtp_host` and `smtp_port` default to Gmail and can be
+overridden. Spaces in the password are stripped, so paste it as shown.
+
+Email is best-effort: a failure is logged but does not fail the run, since the
+notification has already been delivered and a mail outage at 8am is not a broken
+job.
 
 ## Read-only
 
