@@ -141,3 +141,9 @@ canvas_mcp/model.py    Timezone conversion, HTML to text, response shaping
 canvas_mcp/server.py   Tool definitions + JSON-RPC over stdio
 canvas_mcp/i18n/       Message catalogues; en.py is the default and the fallback
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE). Use it, fork it, ship it.
+
+Not affiliated with or endorsed by Instructure. "Canvas" is their trademark.
