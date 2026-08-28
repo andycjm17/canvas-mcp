@@ -109,10 +109,10 @@ def _rows(due: list, overdue: list) -> list:
     out = []
     for item in overdue:
         out.append((True, item.get("due") or {}, item.get("course", ""),
-                    item.get("name", "")))
+                    item.get("name", ""), item.get("url")))
     for item in due:
         out.append((False, item.get("when") or {}, item.get("course", ""),
-                    item.get("title", "")))
+                    item.get("title", ""), item.get("url")))
     return out
 
 
@@ -135,13 +135,15 @@ def compose_email(due: list, overdue: list) -> tuple:
 
     # ---------------------------------------------------------------- text
     text = [summary, ""]
-    for late, when, course, name in rows:
+    for late, when, course, name, url in rows:
         stamp = str(when.get("local", ""))[5:]
         text.append(f"  {stamp}  {when.get('weekday','')}"
                     f"   ·   {when.get('relative','')}")
         text.append(f"      {name}")
         if course:
             text.append(f"      {course}")
+        if url:
+            text.append(f"      {url}")
         text.append("")
 
     # ---------------------------------------------------------------- html
@@ -163,11 +165,17 @@ def compose_email(due: list, overdue: list) -> tuple:
         html.append(f'<tr><th style="{th}">{escape(i18n.t("table.ddl"))}</th>'
                     f'<th style="{th}">{escape(i18n.t("table.course"))}</th>'
                     f'<th style="{th}">{escape(i18n.t("table.name"))}</th></tr>')
-        for late, when, course, name in rows:
+        for late, when, course, name, url in rows:
             td = ("padding:12px 14px;border-bottom:1px solid #f3f4f6;"
                   "vertical-align:top")
             accent = "#b91c1c" if late else "#111827"
             stamp = str(when.get("local", ""))[5:]
+            if url:
+                cell = (f'<a href="{escape(url, quote=True)}" '
+                        f'style="color:#1d4ed8;text-decoration:none">'
+                        f'{escape(str(name))}</a>')
+            else:
+                cell = escape(str(name))
             html.append(
                 f'<tr>'
                 f'<td style="{td};white-space:nowrap">'
@@ -176,7 +184,7 @@ def compose_email(due: list, overdue: list) -> tuple:
                 f'<span style="color:{accent};font-size:12px">'
                 f'{escape(str(when.get("relative","")))}</span></td>'
                 f'<td style="{td};color:#6b7280">{escape(str(course))}</td>'
-                f'<td style="{td}">{escape(str(name))}</td>'
+                f'<td style="{td}">{cell}</td>'
                 f'</tr>')
         html.append('</table>')
     html.append('</div>')

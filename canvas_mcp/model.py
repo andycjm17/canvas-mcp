@@ -126,6 +126,14 @@ def plain(raw: str | None, limit: int = 4000) -> str:
     return text
 
 
+def absolute_url(url: str | None) -> str | None:
+    """Planner items return assignment URLs relative ("/courses/...") while
+    calendar events are absolute — normalize so links work outside Canvas."""
+    if url and url.startswith("/"):
+        return f"https://{config.host()}{url}"
+    return url
+
+
 # ---------------------------------------------------------------- shaping
 
 def course(raw: dict) -> dict:
@@ -198,7 +206,7 @@ def planner_item(raw: dict) -> dict:
         "when": local(raw.get("plannable_date")),
         "course": raw.get("context_name"),
         "course_id": raw.get("course_id"),
-        "url": raw.get("html_url"),
+        "url": absolute_url(raw.get("html_url")),
     }
     if inner.get("points_possible") is not None:
         out["points_possible"] = inner["points_possible"]
